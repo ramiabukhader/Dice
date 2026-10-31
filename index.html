@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Grab the die, carry it around the tray, let it go and see what you roll.">
+  <meta name="theme-color" content="#ffffff">
+  <title>Dice</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --ink: #12141c;
+      --muted: #6b7280;
+      --line: #e8eaf0;
+      --accent: #ff7a3d;
+      --accent-2: #ffb347;
+      --tray-w: 760px;
+      --spark: 160px;
+    }
+
+    * { box-sizing: border-box; }
+    html { height: 100%; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      color: var(--ink);
+      background:
+        radial-gradient(900px 500px at 50% -10%, rgba(255, 150, 90, .14), transparent 70%),
+        radial-gradient(700px 500px at 100% 100%, rgba(90, 110, 255, .10), transparent 70%),
+        var(--bg);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      touch-action: manipulation;
+      overflow-x: hidden;
+    }
+
+    /* ---------- bars ---------- */
+    .topbar, .bottombar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 0 20px;
+      font-size: 14px;
+      letter-spacing: .01em;
+      white-space: nowrap;
+    }
+    .topbar { height: 60px; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, .9); }
+    .bottombar { height: 54px; border-top: 1px solid var(--line); color: var(--muted); }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.01em; }
+    .mini {
+      width: 18px; height: 18px; border-radius: 5px;
+      background: linear-gradient(145deg, #fff, #e9ebf1);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.12);
+      position: relative;
+      animation: spin 6s linear infinite;
+    }
+    .mini::before, .mini::after { content: ""; position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #12141c; }
+    .mini::before { left: 4px; top: 4px; }
+    .mini::after  { right: 4px; bottom: 4px; }
+    .created {
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: #f3f4f8;
+      border: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    /* ---------- layout ---------- */
+    main { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; padding: 36px 20px; }
+    .board { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 44px 64px; }
+
+    /* ---------- the tray ---------- */
+    .tray-wrap { animation: trayIn .9s cubic-bezier(.2, .8, .2, 1) both; }
+    .box {
+      position: relative;
+      width: min(var(--tray-w), 92vw);
+      aspect-ratio: 16 / 10;
+      border-radius: 36px;
+      background:
+        radial-gradient(70% 55% at 50% 0%, rgba(255, 255, 255, .22), transparent 70%),
+        radial-gradient(circle at 50% 60%, #5466ee 0%, #4051d8 45%, #2d3cb4 100%);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, .18),
+        inset 0 26px 60px rgba(20, 30, 120, .22),
+        inset 0 -24px 50px rgba(10, 16, 90, .35),
+        0 50px 100px -40px rgba(40, 60, 200, .55),
+        0 0 0 8px #fff,
+        0 0 0 9px var(--line);
+    }
+    .box::before {                       /* dotted felt texture */
+      content: "";
+      position: absolute; inset: 0; border-radius: inherit;
+      background-image: radial-gradient(rgba(255, 255, 255, .14) 1px, transparent 1.4px);
+      background-size: 18px 18px;
+      opacity: .7;
+      pointer-events: none;
+    }
+    .box::after {                        /* inner rim */
+      content: "";
+      position: absolute; inset: 16px; border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      box-shadow: inset 0 0 50px rgba(10, 16, 90, .22);
+      pointer-events: none;
+    }
+    .box.shake { animation: shake .4s cubic-bezier(.36, .07, .19, .97); }
+    .box:has(canvas:focus-visible) { outline: 3px solid var(--accent); outline-offset: 12px; }
+
+    canvas#scene {
+      position: absolute; inset: 0; z-index: 1;
+      width: 100%; height: 100%;
+      display: block;
+      border-radius: inherit;
+      cursor: grab;
+      touch-action: none;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .box.holding canvas#scene { cursor: grabbing; }
+    .box.over canvas#scene { cursor: grab; }
+    .box:not(.over):not(.holding) canvas#scene { cursor: default; }
+
+    .nogl {
+      position: absolute; inset: 0; z-index: 3;
+      display: grid; place-items: center;
+      margin: 0; padding: 24px; text-align: center;
+      color: #fff; font-size: 15px;
+    }
+    .nogl[hidden] { display: none; }
+
+    /* impact effects, positioned in JS at the die's landing point */
+    .fx { position: absolute; inset: 0; z-index: 2; border-radius: inherit; overflow: hidden; pointer-events: none; }
+    .ripple {
+      position: absolute; left: 50%; top: 50%;
+      width: calc(var(--spark) * 1.3); height: calc(var(--spark) * .55);
+      border-radius: 50%;
+      border: 2px solid rgba(255, 200, 130, .9);
+      transform: translate(-50%, -50%) scale(.3);
+      opacity: 0;
+    }
+    .fx.impact .ripple { animation: ripple .75s ease-out forwards; }
+    .sparks { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+    .sparks i {
+      position: absolute; left: 0; top: 0;
+      width: 7px; height: 7px; border-radius: 50%;
+      background: linear-gradient(180deg, var(--accent-2), var(--accent));
+      box-shadow: 0 0 10px rgba(255, 170, 80, .9);
+      opacity: 0;
+      transform: translate(-50%, -50%) rotate(var(--a)) translateX(0) scale(1);
+    }
+    .fx.impact .sparks i { animation: spark .65s cubic-bezier(.1, .8, .3, 1) forwards; }
+
+    /* ---------- result panel ---------- */
+    .result { min-width: 240px; display: flex; flex-direction: column; gap: 8px; animation: fadeUp .8s .2s cubic-bezier(.2, .8, .2, 1) both; }
+    .label { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+    .number {
+      margin: 0;
+      font-size: 148px; line-height: .95;
+      font-weight: 800; letter-spacing: -.06em;
+      font-variant-numeric: tabular-nums;
+      background: linear-gradient(180deg, var(--accent-2) 0%, var(--accent) 100%);
+      -webkit-background-clip: text; background-clip: text;
+      color: transparent;
+      filter: drop-shadow(0 14px 28px rgba(255, 122, 61, .28));
+      transform-origin: left center;
+    }
+    .number.idle { background-image: linear-gradient(180deg, #dcdfe8, #c2c6d3); filter: none; }
+    .number.pop { animation: pop .6s cubic-bezier(.2, .9, .3, 1.35); }
+    .hint { margin: 2px 0 0; font-size: 15px; color: var(--muted); max-width: 270px; }
+    .stats { display: flex; gap: 10px; margin-top: 10px; }
+    .stat { padding: 8px 12px; border-radius: 12px; background: #f3f4f8; border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+    .stat b { color: var(--ink); font-variant-numeric: tabular-nums; }
+    .history { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 7px; min-height: 32px; }
+    .history li {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: #f3f4f8; border: 1px solid var(--line);
+      display: grid; place-items: center;
+      font-size: 14px; font-weight: 700; color: var(--muted);
+      animation: chip .4s cubic-bezier(.2, .9, .3, 1.3) both;
+    }
+    .history li:first-child {
+      background: linear-gradient(180deg, var(--accent-2), var(--accent));
+      border-color: transparent; color: #fff;
+      box-shadow: 0 6px 14px rgba(255, 122, 61, .35);
+    }
+
+    /* ---------- animations ---------- */
+    @keyframes ripple { 0% { transform: translate(-50%, -50%) scale(.3); opacity: .9; } 100% { transform: translate(-50%, -50%) scale(2.1); opacity: 0; } }
+    @keyframes spark {
+      0%   { opacity: 1; transform: translate(-50%, -50%) rotate(var(--a)) translateX(10px) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--a)) translateX(var(--spark)) scale(.2); }
+    }
+    @keyframes shake {
+      0%, 100% { transform: translate(0, 0); }
+      20% { transform: translate(-3px, 2px); }
+      40% { transform: translate(3px, -1px); }
+      60% { transform: translate(-2px, 1px); }
+      80% { transform: translate(2px, 1px); }
+    }
+    @keyframes pop { 0% { transform: scale(.4) rotate(-6deg); opacity: 0; } 60% { transform: scale(1.1) rotate(1deg); opacity: 1; } 100% { transform: scale(1) rotate(0); } }
+    @keyframes chip { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes trayIn { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes fadeUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+    /* ---------- small screens ---------- */
+    @media (max-width: 1180px) {
+      .result { align-items: center; text-align: center; min-width: 0; }
+      .number { transform-origin: center; }
+      .history, .stats { justify-content: center; }
+      .hint { max-width: none; }
+    }
+    @media (max-width: 820px) {
+      :root { --spark: 110px; }
+      .board { gap: 30px; }
+      .box { aspect-ratio: 4 / 3; border-radius: 28px; }
+      .number { font-size: 112px; }
+      .topbar { font-size: 13px; gap: 8px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .mini, .number.pop, .box.shake, .fx.impact .ripple, .fx.impact .sparks i { animation: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <span class="brand"><span class="mini" aria-hidden="true"></span>made by Rami Abukhader</span>
+    <time id="created" class="created" datetime="2026-10-31T12:36:00Z">31 Oct 2026, 12:36 UTC</time>
+  </header>
+
+  <main>
+    <section class="board">
+      <div class="tray-wrap"><div class="box" id="box">
+        <canvas id="scene" role="button" tabindex="0"
+                aria-label="Die. Press and hold to pick it up, drag it around the tray, release to roll. Arrow keys move it while held."></canvas>
+        <div class="fx" id="fx">
+          <div class="ripple" id="ripple"></div>
+          <div class="sparks" id="sparks"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <p class="nogl" id="nogl" hidden>This page needs WebGL to show the die.</p>
+      </div></div>
+
+      <aside class="result" aria-live="polite">
+        <p class="label">Result</p>
+        <p class="number idle" id="number">&ndash;</p>
+        <p class="hint" id="hint">Grab the die, carry it anywhere in the tray, then let it go.</p>
+        <div class="stats">
+          <span class="stat">Rolls <b id="rolls">0</b></span>
+          <span class="stat">Total <b id="total">0</b></span>
+        </div>
+        <ul class="history" id="history" aria-label="Previous rolls"></ul>
+      </aside>
+    </section>
+  </main>
+
+  <footer class="bottombar">Managed by Saif Almshaye5</footer>
+
+  <script type="module">
+    import * as THREE from './vendor/three-dice.min.js';
+
+    const box = document.getElementById('box');
+    const canvas = document.getElementById('scene');
+    const fx = document.getElementById('fx');
+    const rippleEl = document.getElementById('ripple');
+    const sparksEl = document.getElementById('sparks');
+    const sparks = sparksEl.children;
+    const numberEl = document.getElementById('number');
+    const hintEl = document.getElementById('hint');
+    const historyEl = document.getElementById('history');
+    const rollsEl = document.getElementById('rolls');
+    const totalEl = document.getElementById('total');
+    const createdEl = document.getElementById('created');
+
+    /* The creation time is fixed in the HTML (datetime attribute); it is only
+       re-formatted here so it reads in the viewer's local time zone. */
+    const created = new Date(createdEl.getAttribute('datetime'));
+    if (!isNaN(created.getTime())) {
+      try {
+        createdEl.textContent = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(created);
+        createdEl.title = created.toUTCString();
+      } catch (e) { /* keep the static fallback text */ }
+    }
+
+    /* ---------- world ---------- */
+    const S = 2.8;                       // die edge length
+    const REST_Y = S / 2;
+    const LIFT_Y = REST_Y + 2.4;
+    const FAR_PAD = 1.6;                 // keep a lifted die inside the far edge of the tray
+    const GRAVITY = 64;
+    const ELEV = 62 * Math.PI / 180;     // camera elevation
+    const FOV = 32;
+    const UP = new THREE.Vector3(0, 1, 0);
+    const FACE_NORMALS = { 1: [0, 1, 0], 6: [0, -1, 0], 2: [1, 0, 0], 5: [-1, 0, 0], 3: [0, 0, 1], 4: [0, 0, -1] };
+    const MATERIAL_ORDER = [2, 5, 1, 6, 3, 4];     // +x, -x, +y, -y, +z, -z
+    const PIPS = {
+      1: [[.5, .5]],
+      2: [[.25, .25], [.75, .75]],
+      3: [[.25, .25], [.5, .5], [.75, .75]],
+      4: [[.25, .25], [.75, .25], [.25, .75], [.75, .75]],
+      5: [[.25, .25], [.75, .25], [.5, .5], [.25, .75], [.75, .75]],
+      6: [[.25, .25], [.25, .5], [.25, .75], [.75, .25], [.75, .5], [.75, .75]],
+    };
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    } catch (e) {
+      document.getElementById('nogl').hidden = false;
+      renderer = null;
+    }
+
+    if (renderer) main();
+
+    function main() {
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(FOV, 1.6, 0.1, 100);
+
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.7;
+
+      const key = new THREE.DirectionalLight(0xfff3e2, 2.4);
+      key.position.set(-6, 14, -2);
+      key.castShadow = true;
+      key.shadow.mapSize.set(window.innerWidth < 820 ? 1024 : 2048, window.innerWidth < 820 ? 1024 : 2048);
+      key.shadow.camera.left = -12; key.shadow.camera.right = 12;
+      key.shadow.camera.top = 12; key.shadow.camera.bottom = -12;
+      key.shadow.camera.near = 1; key.shadow.camera.far = 40;
+      key.shadow.bias = -0.0005; key.shadow.normalBias = 0.03; key.shadow.radius = 7;
+      scene.add(key);
+      scene.add(new THREE.HemisphereLight(0xeef1ff, 0x3542c4, 0.6));
+      const rim = new THREE.DirectionalLight(0xcfd8ff, 0.8);
+      rim.position.set(6, 6, 8);
+      scene.add(rim);
+
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(80, 80),
+        new THREE.ShadowMaterial({ color: 0x040938, opacity: 0.48, transparent: true })
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      const glow = new THREE.Mesh(
+        new THREE.PlaneGeometry(S * 2.8, S * 2.8),
+        new THREE.MeshBasicMaterial({ map: makeGlowTexture(), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.y = 0.03;
+      scene.add(glow);
+
+      const geometry = new THREE.RoundedBoxGeometry(S, S, S, 7, S * 0.11);
+      const materials = MATERIAL_ORDER.map(v => {
+        const tex = makeFaceTextures(v);
+        return new THREE.MeshStandardMaterial({
+          map: tex.map, normalMap: tex.normal, normalScale: new THREE.Vector2(1, 1),
+          roughness: 0.42, metalness: 0, envMapIntensity: 0.9,
+        });
+      });
+      const die = new THREE.Mesh(geometry, materials);
+      die.castShadow = true;
+      scene.add(die);
+
+      /* ---------- framing ---------- */
+      let BX = 5, BZ = 3;
+      function frame() {
+        const r = box.getBoundingClientRect();
+        const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+        renderer.setSize(w, h, false);
+        const aspect = w / h;
+        camera.aspect = aspect;
+        camera.updateProjectionMatrix();
+        const dist = aspect < 1.4 ? 14.2 : 16.6;
+        camera.position.set(0, dist * Math.sin(ELEV), dist * Math.cos(ELEV));
+        camera.lookAt(0, 0, 0);
+        const halfH = dist * Math.tan(FOV / 2 * Math.PI / 180);
+        BX = Math.max(1, halfH * aspect - S / 2 - 0.5);
+        BZ = Math.max(1, halfH / Math.sin(ELEV) - S / 2 - 0.6);
+      }
+      new ResizeObserver(frame).observe(box);
+      frame();
+
+      /* ---------- state ---------- */
+      const state = {
+        held: false, flying: false, intro: false, grounded: false, settling: false,
+        pointer: false, value: 0, bounces: 0, settleT: 0,
+        vel: new THREE.Vector3(), omega: new THREE.Vector3(),
+        target: new THREE.Vector2(), offset: new THREE.Vector2(),
+        heldBase: new THREE.Quaternion(), settleFrom: new THREE.Quaternion(), targetQ: new THREE.Quaternion(),
+      };
+      let rolls = 0, total = 0;
+      const history = [];
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const easeOutCubic = k => 1 - Math.pow(1 - k, 3);
+      const randInt = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+      function rollValue() {
+        if (window.crypto && window.crypto.getRandomValues) {
+          const buf = new Uint32Array(1); window.crypto.getRandomValues(buf); return (buf[0] % 6) + 1;
+        }
+        return randInt(1, 6);
+      }
+      function randomAxis() {
+        return new THREE.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize();
+      }
+
+      /* ---------- picking up ---------- */
+      const raycaster = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+      const liftPlane = new THREE.Plane(UP, -LIFT_Y);
+      const hitPt = new THREE.Vector3();
+      const sphere = new THREE.Sphere(new THREE.Vector3(), S * 1.05);
+
+      function setRay(e) {
+        const r = canvas.getBoundingClientRect();
+        ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+        raycaster.setFromCamera(ndc, camera);
+      }
+      function overDie(e) {
+        setRay(e);
+        sphere.center.copy(die.position);
+        return raycaster.ray.intersectsSphere(sphere);
+      }
+      function pointerOnPlane(e) {
+        setRay(e);
+        return raycaster.ray.intersectPlane(liftPlane, hitPt) ? hitPt : null;
+      }
+
+      function grab(p) {
+        if (state.held) return;
+        state.held = true; state.flying = false; state.intro = false; state.settling = false;
+        state.pointer = !!p;
+        state.target.set(die.position.x, die.position.z);
+        if (p) state.offset.set(die.position.x - p.x, die.position.z - p.z);
+        state.vel.set(0, 0, 0);
+        state.heldBase.copy(die.quaternion);
+        box.classList.add('holding');
+        canvas.setAttribute('aria-pressed', 'true');
+        hintEl.textContent = 'Carry it around… let go to roll.';
+      }
+
+      function release() {
+        if (!state.held) return;
+        state.held = false;
+        box.classList.remove('holding');
+        canvas.setAttribute('aria-pressed', 'false');
+        startRoll(false);
+      }
+
+      function startRoll(isIntro) {
+        state.flying = true; state.intro = isIntro;
+        state.grounded = false; state.settling = false; state.bounces = 0; state.settleT = 0;
+        state.value = rollValue();
+        const speed = Math.hypot(state.vel.x, state.vel.z);
+        const throwScale = Math.min(1, 11 / Math.max(speed, 0.001));   // cap the throw
+        state.vel.x *= 0.6 * throwScale; state.vel.z *= 0.6 * throwScale; state.vel.y = 0;
+        state.omega.copy(randomAxis()).multiplyScalar(7 + Math.min(8, speed * 0.5));
+        const n = new THREE.Vector3().fromArray(FACE_NORMALS[state.value]);
+        const q = new THREE.Quaternion().setFromUnitVectors(n, UP);
+        const yaw = new THREE.Quaternion().setFromAxisAngle(UP, Math.random() * Math.PI * 2);
+        state.targetQ.copy(yaw.multiply(q));
+        canvas.setAttribute('aria-busy', 'true');
+        if (!isIntro) hintEl.textContent = 'Rolling…';
+      }
+
+      function finishRoll() {
+        state.flying = false; state.settling = false;
+        state.vel.set(0, 0, 0);
+        die.quaternion.copy(state.targetQ);
+        die.position.y = REST_Y;
+        canvas.removeAttribute('aria-busy');
+        if (state.intro) { state.intro = false; return; }
+        showResult(state.value);
+      }
+
+      function showResult(value) {
+        numberEl.textContent = String(value);
+        numberEl.classList.remove('idle'); numberEl.classList.remove('pop');
+        void numberEl.offsetWidth;
+        numberEl.classList.add('pop');
+        hintEl.textContent = 'You rolled a ' + value + '. Grab the die to roll again.';
+        canvas.setAttribute('aria-label', 'Die showing ' + value + '. Press and hold to pick it up, drag it around the tray, release to roll.');
+        rolls++; total += value;
+        rollsEl.textContent = String(rolls); totalEl.textContent = String(total);
+        history.unshift(value);
+        if (history.length > 10) history.length = 10;
+        historyEl.textContent = '';
+        for (const v of history) { const li = document.createElement('li'); li.textContent = String(v); historyEl.appendChild(li); }
+      }
+
+      /* ---------- impact effects (DOM, placed at the landing point) ---------- */
+      const proj = new THREE.Vector3();
+      function impact() {
+        proj.set(die.position.x, 0, die.position.z).project(camera);
+        const r = canvas.getBoundingClientRect();
+        const x = (proj.x + 1) / 2 * r.width, y = (1 - proj.y) / 2 * r.height + 6;
+        rippleEl.style.left = x + 'px'; rippleEl.style.top = y + 'px';
+        sparksEl.style.left = x + 'px'; sparksEl.style.top = y + 'px';
+        for (let i = 0; i < sparks.length; i++) sparks[i].style.setProperty('--a', (i * (360 / sparks.length) + randInt(-14, 14)) + 'deg');
+        fx.classList.remove('impact'); box.classList.remove('shake');
+        void fx.offsetWidth;
+        fx.classList.add('impact'); box.classList.add('shake');
+        setTimeout(() => { fx.classList.remove('impact'); box.classList.remove('shake'); }, 800);
+      }
+
+      /* ---------- input ---------- */
+      canvas.addEventListener('pointerdown', e => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (state.held || !overDie(e)) return;
+        e.preventDefault();
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        const p = pointerOnPlane(e);
+        grab(p ? { x: p.x, z: p.z } : null);
+      });
+      canvas.addEventListener('pointermove', e => {
+        if (state.held) {
+          if (!state.pointer) return;
+          const p = pointerOnPlane(e);
+          if (p) state.target.set(clamp(p.x + state.offset.x, -BX, BX), clamp(p.z + state.offset.y, -BZ + FAR_PAD, BZ));
+        } else {
+          box.classList.toggle('over', overDie(e));
+        }
+      });
+      canvas.addEventListener('pointerleave', () => box.classList.remove('over'));
+      canvas.addEventListener('pointerup', release);
+      canvas.addEventListener('pointercancel', release);
+      canvas.addEventListener('contextmenu', e => e.preventDefault());
+      window.addEventListener('blur', release);
+
+      canvas.addEventListener('keydown', e => {
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!e.repeat) grab(null); return; }
+        if (!state.held) return;
+        const step = 0.9;
+        if (e.key === 'ArrowLeft')  { e.preventDefault(); state.target.x = clamp(state.target.x - step, -BX, BX); }
+        if (e.key === 'ArrowRight') { e.preventDefault(); state.target.x = clamp(state.target.x + step, -BX, BX); }
+        if (e.key === 'ArrowUp')    { e.preventDefault(); state.target.y = clamp(state.target.y - step, -BZ + FAR_PAD, BZ); }
+        if (e.key === 'ArrowDown')  { e.preventDefault(); state.target.y = clamp(state.target.y + step, -BZ, BZ); }
+      });
+      canvas.addEventListener('keyup', e => {
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); release(); }
+      });
+
+      /* ---------- animation loop ---------- */
+      const qTilt = new THREE.Quaternion(), qWobble = new THREE.Quaternion(), qStep = new THREE.Quaternion();
+      const euler = new THREE.Euler(), axis = new THREE.Vector3();
+      let last = performance.now(), t = 0;
+
+      function tick(now) {
+        const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
+        last = now; t += dt;
+
+        if (state.held) {
+          const px = die.position.x, pz = die.position.z;
+          const k = 1 - Math.exp(-dt * 16);
+          die.position.x += (state.target.x - px) * k;
+          die.position.z += (state.target.y - pz) * k;
+          die.position.y += (LIFT_Y - die.position.y) * (1 - Math.exp(-dt * 12));
+          const vx = (die.position.x - px) / dt, vz = (die.position.z - pz) / dt;
+          state.vel.x += (vx - state.vel.x) * 0.35;
+          state.vel.z += (vz - state.vel.z) * 0.35;
+          const speed = Math.hypot(state.vel.x, state.vel.z);
+          const tiltAngle = Math.min(0.42, speed * 0.035);
+          if (speed > 0.01) axis.set(state.vel.z, 0, -state.vel.x).normalize(); else axis.set(1, 0, 0);
+          qTilt.setFromAxisAngle(axis, tiltAngle);
+          qWobble.setFromEuler(euler.set(Math.sin(t * 6.3) * 0.07, 0, Math.cos(t * 5.1) * 0.06));
+          die.quaternion.copy(qTilt).multiply(qWobble).multiply(state.heldBase);
+          glow.material.opacity += (0.95 - glow.material.opacity) * (1 - Math.exp(-dt * 8));
+          const pulse = 1 + Math.sin(t * 4) * 0.06;
+          glow.scale.set(pulse, pulse, 1);
+        } else if (state.flying) {
+          state.vel.y -= GRAVITY * dt;
+          die.position.x += state.vel.x * dt;
+          die.position.z += state.vel.z * dt;
+          die.position.y += state.vel.y * dt;
+          if (die.position.x > BX) { die.position.x = BX; state.vel.x = -Math.abs(state.vel.x) * 0.5; }
+          else if (die.position.x < -BX) { die.position.x = -BX; state.vel.x = Math.abs(state.vel.x) * 0.5; }
+          if (die.position.z > BZ) { die.position.z = BZ; state.vel.z = -Math.abs(state.vel.z) * 0.5; }
+          else if (die.position.z < -BZ) { die.position.z = -BZ; state.vel.z = Math.abs(state.vel.z) * 0.5; }
+          if (die.position.y <= REST_Y) {
+            die.position.y = REST_Y;
+            if (state.vel.y < 0) {
+              const vImpact = -state.vel.y;
+              state.vel.y = vImpact * 0.42;
+              state.vel.x *= 0.75; state.vel.z *= 0.75;
+              state.bounces++;
+              if (vImpact > 4) impact();
+              if (!state.settling) { state.settling = true; state.settleT = 0; state.settleFrom.copy(die.quaternion); }
+              if (state.vel.y < 1.8) { state.vel.y = 0; state.grounded = true; }
+            }
+          }
+          if (state.grounded) { const f = Math.exp(-dt * 7); state.vel.x *= f; state.vel.z *= f; }
+          if (!state.settling) {
+            const ang = state.omega.length() * dt;
+            if (ang > 0) { qStep.setFromAxisAngle(axis.copy(state.omega).normalize(), ang); die.quaternion.premultiply(qStep); }
+          } else {
+            state.settleT += dt;
+            const k = easeOutCubic(Math.min(1, state.settleT / 0.6));
+            die.quaternion.slerpQuaternions(state.settleFrom, state.targetQ, k);
+            if (k >= 1 && state.grounded && Math.hypot(state.vel.x, state.vel.z) < 0.08) finishRoll();
+          }
+          glow.material.opacity += (0 - glow.material.opacity) * (1 - Math.exp(-dt * 10));
+        } else {
+          glow.material.opacity += (0 - glow.material.opacity) * (1 - Math.exp(-dt * 10));
+        }
+
+        glow.position.set(die.position.x, 0.03, die.position.z);
+        renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+      }
+
+      /* ---------- intro: the die drops into the tray ---------- */
+      die.position.set(0, LIFT_Y + 3, 0);
+      die.quaternion.setFromAxisAngle(randomAxis(), Math.random() * Math.PI);
+      state.vel.set((Math.random() - .5) * 4, 0, (Math.random() - .5) * 3);
+      startRoll(true);
+      requestAnimationFrame(now => { last = now; tick(now); });
+
+      /* ---------- textures ---------- */
+      function makeGlowTexture() {
+        const c = document.createElement('canvas'); c.width = c.height = 256;
+        const g = c.getContext('2d');
+        const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+        grad.addColorStop(0, 'rgba(255, 175, 95, 0.95)');
+        grad.addColorStop(0.4, 'rgba(255, 140, 60, 0.35)');
+        grad.addColorStop(1, 'rgba(255, 120, 40, 0)');
+        g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+        const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+        return tex;
+      }
+
+      function makeFaceTextures(value) {
+        const N = 512, r = N * 0.082;
+        const c = document.createElement('canvas'); c.width = c.height = N;
+        const g = c.getContext('2d');
+        g.fillStyle = '#f8f7f2'; g.fillRect(0, 0, N, N);
+        const vg = g.createRadialGradient(N * .42, N * .38, N * .05, N * .5, N * .5, N * .78);
+        vg.addColorStop(0, 'rgba(255,255,255,.45)'); vg.addColorStop(1, 'rgba(70,70,95,.13)');
+        g.fillStyle = vg; g.fillRect(0, 0, N, N);
+        for (const [u, v] of PIPS[value]) {
+          const x = u * N, y = v * N;
+          g.strokeStyle = 'rgba(0,0,0,.22)'; g.lineWidth = 4;
+          g.beginPath(); g.arc(x, y, r + 1, Math.PI * 1.05, Math.PI * 1.75); g.stroke();
+          g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 2.5;
+          g.beginPath(); g.arc(x, y, r + 2, Math.PI * .1, Math.PI * .75); g.stroke();
+          const rg = g.createRadialGradient(x - r * .3, y - r * .3, r * .05, x, y, r);
+          rg.addColorStop(0, '#30343e'); rg.addColorStop(.6, '#0e1016'); rg.addColorStop(1, '#05060a');
+          g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+          g.fillStyle = 'rgba(255,255,255,.18)';
+          g.beginPath(); g.ellipse(x + r * .28, y + r * .34, r * .42, r * .22, Math.PI / 4, 0, Math.PI * 2); g.fill();
+        }
+        const map = new THREE.CanvasTexture(c);
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+
+        const nc = document.createElement('canvas'); nc.width = nc.height = N;
+        const ng = nc.getContext('2d');
+        const img = ng.createImageData(N, N), d = img.data;
+        for (let i = 0; i < d.length; i += 4) { d[i] = 128; d[i + 1] = 128; d[i + 2] = 255; d[i + 3] = 255; }
+        for (const [u, v] of PIPS[value]) {
+          const cx = u * N, cy = v * N, R = r + 2;
+          const x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(N - 1, Math.ceil(cx + R));
+          const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(N - 1, Math.ceil(cy + R));
+          for (let y = y0; y <= y1; y++) {
+            for (let x = x0; x <= x1; x++) {
+              const dx = x + .5 - cx, dy = y + .5 - cy, dist = Math.hypot(dx, dy);
+              if (dist > R || dist < 1e-3) continue;
+              const tt = dist / R;
+              const s = tt < .86 ? 1.0 * tt : 0.86 * (1 - (tt - .86) / .14);
+              const nx = -(dx / dist) * s, ny = (dy / dist) * s, nz = 1;
+              const len = Math.hypot(nx, ny, nz), k = (y * N + x) * 4;
+              d[k] = Math.round((nx / len * .5 + .5) * 255);
+              d[k + 1] = Math.round((ny / len * .5 + .5) * 255);
+              d[k + 2] = Math.round((nz / len * .5 + .5) * 255);
+            }
+          }
+        }
+        ng.putImageData(img, 0, 0);
+        const normal = new THREE.CanvasTexture(nc);
+        normal.anisotropy = map.anisotropy;
+        return { map, normal };
+      }
+    }
+  </script>
+</body>
+</html>
