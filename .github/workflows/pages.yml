@@ -30,7 +30,7 @@ jobs:
           TOKEN: ${{ github.token }}
         run: |
           site="$(mktemp -d)"
-          cp index.html "$site/"
+          cp -R index.html vendor "$site/"
           touch "$site/.nojekyll"
           cd "$site"
           git init -q -b gh-pages
