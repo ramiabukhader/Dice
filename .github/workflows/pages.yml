@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
 
 concurrency:
   group: pages
@@ -41,9 +40,3 @@ jobs:
           git commit -q -m "Publish site from ${GITHUB_SHA::7}"
           git push --force "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
 
-      - name: Request a Pages build
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/pages/builds" \
-            || echo "::warning::Could not request a Pages build explicitly; the push itself normally triggers one."
