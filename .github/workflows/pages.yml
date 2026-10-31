@@ -1,4 +1,7 @@
-name: Deploy to GitHub Pages
+name: Publish to GitHub Pages
+
+# GitHub Pages serves the gh-pages branch. Every push to main copies the site
+# there, so main stays the source of truth and the live page follows it.
 
 on:
   push:
@@ -6,35 +9,41 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
-  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Deploy
+  publish:
+    name: Publish gh-pages
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Pages (enables it on the first run)
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      - name: Push the site to the gh-pages branch
+        env:
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+          TOKEN: ${{ github.token }}
+        run: |
+          site="$(mktemp -d)"
+          cp index.html "$site/"
+          touch "$site/.nojekyll"
+          cd "$site"
+          git init -q -b gh-pages
+          git config user.name "$ACTOR"
+          git config user.email "${ACTOR_ID}+${ACTOR}@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish site from ${GITHUB_SHA::7}"
+          git push --force "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
 
-      - name: Upload site
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Request a Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/pages/builds" \
+            || echo "::warning::Could not request a Pages build explicitly; the push itself normally triggers one."
