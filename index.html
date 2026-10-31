@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Press and hold the die, let it go, and see what you roll.">
+  <meta name="theme-color" content="#ffffff">
+  <title>Dice</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --ink: #111318;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --tray: #f3f4f6;
+      --accent: #2563eb;
+      --s: 112px;                 /* die size */
+      --h: calc(var(--s) / 2);    /* half of the die size */
+      --lift: -46px;              /* how high the die is lifted */
+    }
+
+    * { box-sizing: border-box; }
+    html { height: 100%; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      touch-action: manipulation;
+    }
+
+    /* ---------- top & bottom bars ---------- */
+    .topbar, .bottombar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 0 20px;
+      font-size: 14px;
+      letter-spacing: .01em;
+      white-space: nowrap;
+    }
+    .topbar { height: 56px; border-bottom: 1px solid var(--line); }
+    .bottombar { height: 52px; border-top: 1px solid var(--line); color: var(--muted); }
+    .brand { font-weight: 600; }
+    .sep { color: #c9cdd3; }
+    .created { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    /* ---------- layout ---------- */
+    main {
+      flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 20px;
+    }
+    .board {
+      display: flex;
+      align-items: center;
+      gap: 56px;
+    }
+
+    /* the box / tray that holds the die */
+    .box {
+      width: 320px;
+      height: 320px;
+      border-radius: 30px;
+      background: radial-gradient(120% 100% at 50% 0%, #f8f9fb 0%, #eef0f3 100%);
+      box-shadow:
+        inset 0 2px 14px rgba(17, 19, 24, .06),
+        inset 0 0 0 1px rgba(17, 19, 24, .05),
+        0 30px 60px -34px rgba(17, 19, 24, .28);
+      display: grid;
+      place-items: center;
+      transition: box-shadow .2s;
+    }
+    .box:has(.die:focus-visible) {
+      box-shadow:
+        inset 0 2px 14px rgba(17, 19, 24, .06),
+        inset 0 0 0 1px rgba(17, 19, 24, .05),
+        0 30px 60px -34px rgba(17, 19, 24, .28),
+        0 0 0 3px rgba(37, 99, 235, .35);
+    }
+
+    /* ---------- 3D stage ---------- */
+    .stage {
+      position: relative;
+      width: calc(var(--s) * 2);
+      height: calc(var(--s) * 2);
+      perspective: 820px;
+      perspective-origin: 50% 32%;
+    }
+
+    .shadow {
+      position: absolute;
+      left: calc(50% + 8px);
+      top: calc(50% + 22px);
+      width: calc(var(--s) * 1.32);
+      height: calc(var(--s) * 1.02);
+      border-radius: 50%;
+      background: radial-gradient(closest-side, rgba(17, 19, 24, .40), rgba(17, 19, 24, .16) 55%, rgba(17, 19, 24, 0) 100%);
+      transform: translate(-50%, -50%) scale(1);
+      opacity: .75;
+      transition: transform .26s cubic-bezier(.2, .9, .3, 1.2), opacity .26s ease;
+      pointer-events: none;
+    }
+    .stage.held .shadow { transform: translate(-50%, -50%) scale(1.45); opacity: .3; }
+    .stage.dropping .shadow { animation: shadowDrop .9s both; transition: none; }
+
+    .die {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: var(--s);
+      height: var(--s);
+      margin: calc(var(--h) * -1) 0 0 calc(var(--h) * -1);
+      transform-style: preserve-3d;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+    .stage.held .die {
+      cursor: grabbing;
+      animation:
+        liftUp .26s cubic-bezier(.2, .9, .3, 1.2) forwards,
+        hover 1.8s ease-in-out .26s infinite;
+    }
+    .stage.dropping .die { animation: drop .9s both; }
+
+    .tilt, .shaker, .cube {
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+    }
+    .tilt { transform: rotateX(-22deg) rotateY(-26deg); }
+    .stage.held .shaker { animation: wobble .55s ease-in-out infinite; }
+    .cube {
+      transform: rotateX(0deg) rotateY(90deg) rotateZ(0deg);
+      transition: transform 1s cubic-bezier(.17, .84, .3, 1);
+    }
+
+    /* faces */
+    .face {
+      --z: var(--h);
+      position: absolute;
+      inset: 0;
+      border-radius: 16%;
+      background: linear-gradient(150deg, #ffffff 0%, #f6f7f9 60%, #eceef2 100%);
+      box-shadow:
+        inset 0 0 0 1px rgba(17, 19, 24, .07),
+        inset 0 -3px 8px rgba(17, 19, 24, .05),
+        inset 0 2px 4px rgba(255, 255, 255, .9);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      transform: var(--rot) translateZ(var(--z));
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      padding: 12%;
+    }
+    /* slightly recessed inner cube that shows through the rounded corners */
+    .face.core {
+      --z: calc(var(--h) - 3px);
+      border-radius: 4%;
+      background: #dfe3e8;
+      box-shadow: none;
+      padding: 0;
+    }
+    .s1 { --rot: rotateY(0deg); }
+    .s2 { --rot: rotateY(90deg); }
+    .s3 { --rot: rotateX(90deg); }
+    .s4 { --rot: rotateX(-90deg); }
+    .s5 { --rot: rotateY(-90deg); }
+    .s6 { --rot: rotateY(180deg); }
+
+    .pip {
+      width: 64%;
+      height: 64%;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #3b3f47, #0d0f14 65%);
+      box-shadow: inset 0 1px 2px rgba(255, 255, 255, .25), 0 1px 1px rgba(255, 255, 255, .6);
+      place-self: center;
+    }
+    .tl { grid-area: 1 / 1; }
+    .tr { grid-area: 1 / 3; }
+    .ml { grid-area: 2 / 1; }
+    .c  { grid-area: 2 / 2; }
+    .mr { grid-area: 2 / 3; }
+    .bl { grid-area: 3 / 1; }
+    .br { grid-area: 3 / 3; }
+
+    /* ---------- result panel ---------- */
+    .result {
+      min-width: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .label {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .number {
+      margin: 0;
+      font-size: 104px;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: -.04em;
+      font-variant-numeric: tabular-nums;
+      transform-origin: left center;
+    }
+    .number.idle { color: #c9cdd3; }
+    .number.pop { animation: pop .5s cubic-bezier(.2, .9, .3, 1.3); }
+    .hint { margin: 6px 0 0; font-size: 14px; color: var(--muted); max-width: 220px; }
+    .history {
+      list-style: none;
+      margin: 14px 0 0;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 28px;
+    }
+    .history li {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--tray);
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .history li:first-child { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+    /* ---------- animations ---------- */
+    @keyframes liftUp {
+      from { transform: translateY(0) scale(1); }
+      to   { transform: translateY(var(--lift)) scale(1.14); }
+    }
+    @keyframes hover {
+      0%, 100% { transform: translateY(var(--lift)) scale(1.14); }
+      50%      { transform: translateY(calc(var(--lift) - 7px)) scale(1.15); }
+    }
+    @keyframes wobble {
+      0%   { transform: rotateX(0deg)  rotateY(0deg)  rotateZ(0deg); }
+      25%  { transform: rotateX(7deg)  rotateY(-6deg) rotateZ(3deg); }
+      50%  { transform: rotateX(-5deg) rotateY(8deg)  rotateZ(-4deg); }
+      75%  { transform: rotateX(6deg)  rotateY(5deg)  rotateZ(5deg); }
+      100% { transform: rotateX(0deg)  rotateY(0deg)  rotateZ(0deg); }
+    }
+    @keyframes drop {
+      0%   { transform: translateY(var(--lift)) scale(1.14); animation-timing-function: cubic-bezier(.5, 0, 1, .6); }
+      42%  { transform: translateY(0) scale(1.04, .95);        animation-timing-function: ease-out; }
+      58%  { transform: translateY(-16px) scale(1);            animation-timing-function: ease-in; }
+      74%  { transform: translateY(0) scale(1.02, .98);        animation-timing-function: ease-out; }
+      86%  { transform: translateY(-5px) scale(1);             animation-timing-function: ease-in; }
+      100% { transform: translateY(0) scale(1); }
+    }
+    @keyframes shadowDrop {
+      0%   { transform: translate(-50%, -50%) scale(1.45); opacity: .3;  animation-timing-function: cubic-bezier(.5, 0, 1, .6); }
+      42%  { transform: translate(-50%, -50%) scale(1);    opacity: .75; animation-timing-function: ease-out; }
+      58%  { transform: translate(-50%, -50%) scale(1.14); opacity: .55; animation-timing-function: ease-in; }
+      74%  { transform: translate(-50%, -50%) scale(1);    opacity: .75; animation-timing-function: ease-out; }
+      86%  { transform: translate(-50%, -50%) scale(1.05); opacity: .68; animation-timing-function: ease-in; }
+      100% { transform: translate(-50%, -50%) scale(1);    opacity: .75; }
+    }
+    @keyframes pop {
+      0%   { transform: scale(.55); opacity: 0; }
+      60%  { transform: scale(1.08); opacity: 1; }
+      100% { transform: scale(1); }
+    }
+
+    /* ---------- small screens ---------- */
+    @media (max-width: 680px) {
+      :root { --s: 92px; --lift: -38px; }
+      .board { flex-direction: column; gap: 28px; }
+      .box { width: 260px; height: 260px; border-radius: 26px; }
+      .result { align-items: center; text-align: center; min-width: 0; }
+      .number { font-size: 84px; transform-origin: center; }
+      .history { justify-content: center; }
+      .hint { max-width: none; }
+      .topbar { font-size: 13px; gap: 8px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .stage.held .shaker { animation: none; }
+      .stage.held .die { animation: liftUp .2s forwards; }
+      .stage.dropping .die, .stage.dropping .shadow { animation-duration: .35s; }
+      .cube { transition-duration: .35s; }
+      .number.pop { animation: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <span class="brand">made by Rami Abukhader</span>
+    <span class="sep" aria-hidden="true">&bull;</span>
+    <time id="created" class="created" datetime="2026-10-31T12:36:00Z">31 Oct 2026, 12:36 UTC</time>
+  </header>
+
+  <main>
+    <section class="board">
+      <div class="box">
+        <div class="stage" id="stage">
+          <div class="shadow"></div>
+
+          <div class="die" id="die" role="button" tabindex="0"
+               aria-label="Die. Press and hold to lift it, release to roll.">
+            <div class="tilt">
+              <div class="shaker">
+                <div class="cube" id="cube">
+                  <div class="face s1" data-value="1"><i class="pip c"></i></div>
+                  <div class="face s2" data-value="2"><i class="pip tl"></i><i class="pip br"></i></div>
+                  <div class="face s3" data-value="3"><i class="pip tl"></i><i class="pip c"></i><i class="pip br"></i></div>
+                  <div class="face s4" data-value="4"><i class="pip tl"></i><i class="pip tr"></i><i class="pip bl"></i><i class="pip br"></i></div>
+                  <div class="face s5" data-value="5"><i class="pip tl"></i><i class="pip tr"></i><i class="pip c"></i><i class="pip bl"></i><i class="pip br"></i></div>
+                  <div class="face s6" data-value="6"><i class="pip tl"></i><i class="pip ml"></i><i class="pip bl"></i><i class="pip tr"></i><i class="pip mr"></i><i class="pip br"></i></div>
+                  <div class="face core s1"></div>
+                  <div class="face core s2"></div>
+                  <div class="face core s3"></div>
+                  <div class="face core s4"></div>
+                  <div class="face core s5"></div>
+                  <div class="face core s6"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="result" aria-live="polite">
+        <p class="label">Result</p>
+        <p class="number idle" id="number">&ndash;</p>
+        <p class="hint" id="hint">Press and hold the die, then let it go.</p>
+        <ul class="history" id="history" aria-label="Previous rolls"></ul>
+      </aside>
+    </section>
+  </main>
+
+  <footer class="bottombar">Managed by Saif Almshaye5</footer>
+
+  <script>
+    (function () {
+      'use strict';
+
+      var stage = document.getElementById('stage');
+      var die = document.getElementById('die');
+      var cube = document.getElementById('cube');
+      var numberEl = document.getElementById('number');
+      var hintEl = document.getElementById('hint');
+      var historyEl = document.getElementById('history');
+      var createdEl = document.getElementById('created');
+
+      /* The creation time is fixed in the HTML (datetime attribute); it is only
+         re-formatted here so it reads in the viewer's local time zone. */
+      var created = new Date(createdEl.getAttribute('datetime'));
+      if (!isNaN(created.getTime())) {
+        try {
+          createdEl.textContent = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(created);
+          createdEl.title = created.toUTCString();
+        } catch (e) { /* keep the static fallback text */ }
+      }
+
+      /* Cube rotation (rotateX, rotateY) that brings each face to the front. */
+      var BASE = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, 180] };
+      var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var ROLL_MS = reduceMotion ? 400 : 1000;
+
+      var rx = 0, ry = 90, rz = 0;   /* must match the initial .cube transform in CSS (face 5 up) */
+      var held = false;
+      var rollId = 0;
+      var history = [];
+
+      function mod360(x) { return ((x % 360) + 360) % 360; }
+      function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+      function rollValue() {
+        if (window.crypto && window.crypto.getRandomValues) {
+          var buf = new Uint32Array(1);
+          window.crypto.getRandomValues(buf);
+          return (buf[0] % 6) + 1;
+        }
+        return randInt(1, 6);
+      }
+      function spins(min, max) {
+        return 360 * randInt(min, max) * (Math.random() < 0.5 ? -1 : 1);
+      }
+      function applyCube() {
+        cube.style.transform = 'rotateX(' + rx + 'deg) rotateY(' + ry + 'deg) rotateZ(' + rz + 'deg)';
+      }
+
+      function lift() {
+        if (held) return;
+        held = true;
+        rollId++;
+        stage.classList.remove('dropping');
+        stage.classList.add('held');
+        die.setAttribute('aria-pressed', 'true');
+        hintEl.textContent = 'Let it go to roll…';
+      }
+
+      function drop() {
+        if (!held) return;
+        held = false;
+        var id = ++rollId;
+        var value = rollValue();
+        var target = BASE[value];
+
+        /* finish on the target face after a few random tumbles */
+        rx += mod360(target[0] - rx) + spins(1, 2);
+        ry += mod360(target[1] - ry) + spins(1, 2);
+        rz += mod360(0 - rz) + spins(0, 1);
+
+        stage.classList.remove('held');
+        void die.offsetWidth;            /* restart the drop animation */
+        stage.classList.add('dropping');
+        applyCube();
+
+        die.setAttribute('aria-pressed', 'false');
+        die.setAttribute('aria-busy', 'true');
+        hintEl.textContent = 'Rolling…';
+
+        window.setTimeout(function () {
+          if (id !== rollId) return;      /* a newer roll took over */
+          stage.classList.remove('dropping');
+          die.removeAttribute('aria-busy');
+          showResult(value);
+        }, ROLL_MS);
+      }
+
+      function showResult(value) {
+        numberEl.textContent = String(value);
+        numberEl.classList.remove('idle');
+        numberEl.classList.remove('pop');
+        void numberEl.offsetWidth;
+        numberEl.classList.add('pop');
+        hintEl.textContent = 'You rolled a ' + value + '. Hold the die to roll again.';
+        die.setAttribute('aria-label', 'Die showing ' + value + '. Press and hold to lift it, release to roll.');
+
+        history.unshift(value);
+        if (history.length > 8) history.length = 8;
+        historyEl.textContent = '';
+        for (var i = 0; i < history.length; i++) {
+          var li = document.createElement('li');
+          li.textContent = String(history[i]);
+          historyEl.appendChild(li);
+        }
+      }
+
+      /* pointer (mouse, touch, pen) */
+      die.addEventListener('pointerdown', function (e) {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        try { die.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        lift();
+      });
+      die.addEventListener('pointerup', drop);
+      die.addEventListener('pointercancel', drop);
+      die.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+      window.addEventListener('blur', function () { if (held) drop(); });
+
+      /* keyboard: hold Space or Enter, release to roll */
+      die.addEventListener('keydown', function (e) {
+        if (e.key === ' ' || e.key === 'Enter' || e.key === 'Spacebar') {
+          e.preventDefault();
+          if (!e.repeat) lift();
+        }
+      });
+      die.addEventListener('keyup', function (e) {
+        if (e.key === ' ' || e.key === 'Enter' || e.key === 'Spacebar') {
+          e.preventDefault();
+          drop();
+        }
+      });
+
+      applyCube();
+    })();
+  </script>
+</body>
+</html>
